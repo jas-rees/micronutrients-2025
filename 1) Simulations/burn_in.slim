@@ -1,0 +1,73 @@
+initialize() {
+//	
+	initializeSLiMOptions(nucleotideBased=T);
+	//mutations: neutral (fixed DFE)
+	//				 beneficial (fixed DFE)
+	// 			 deleterious (fixed DFE)
+	initializeMutationTypeNuc("m1", 0.5, "f", 0.0);
+	initializeMutationTypeNuc("m2", 0.8, "e", 0.05);
+	initializeMutationTypeNuc("m3", 0.1, "g", -0.15, 0.2);
+	// g1:	 	non-coding regions
+	// g2: 		exons
+	// g3:		introns 
+	initializeGenomicElementType("g1", m1, 1.0, mmJukesCantor(6.25e-8/3));
+	initializeGenomicElementType("g2", c(m1, m2, m3), c(2,0.01,8), mmJukesCantor(6.25e-8/3));
+	initializeGenomicElementType("g3", m1, 1.0, mmJukesCantor(6.25e-8/3));
+	//generate random genes along a 100 Kb base chromosome
+	base = 0;
+	while (base < 99999) {
+		// make a non-coding region
+		nc_length = rdunif(1, 100, 5000);
+		initializeGenomicElement(g1, base, base + nc_length - 1);
+		base = base + nc_length;
+		// make first exon
+		ex_length = asInteger(rlnorm(1,log(50), log(2))) +1 ;
+		initializeGenomicElement(g2, base, base + ex_length -1);
+		base = base + ex_length;
+		//make additional intron-exon pairs
+		do
+		{
+			in_length = asInteger(rlnorm(1, log(100), log(1.5))) + 10;
+			initializeGenomicElement(g3, base, base + in_length -1);
+			base = base + in_length;
+			ex_length = asInteger(rlnorm(1, log(50), log(2))) + 1;
+			initializeGenomicElement(g2, base, base + ex_length -1);
+			base = base + ex_length;
+		}
+		while (runif(1) < 0.8); // 20 % probability of stopping
+	}
+	// final non-coding region 
+	nc_length = rdunif(1, 100, 5000);
+	initializeGenomicElement(g1, base, base + nc_length - 1);
+	// make length of chromosome match
+	initializeAncestralNucleotides(randomNucleotides(base + nc_length));
+	// varying recombination rates
+	dens = rgamma(100, 1.311, 0.509);
+	rates = dens*(5e-8);
+	//rates = runif(1000, 5e-9, 5e-7);
+	ends = c(sort(sample(0:base + nc_length - 2, 99)), base + nc_length -1);
+	initializeRecombinationRate(rates, ends);
+}
+1 {
+	// save this run's identifier, used to save and restore
+	defineConstant("simID", getSeed());
+	// create a burnin population that scales to size 7500 
+	sim.addSubpop("p1", 1500);
+}
+late() {
+	muts = sim.mutations;
+	cap = muts[muts.selectionCoeff > 0.05];
+	cap.setSelectionCoeff(0.05);
+}
+//1.51my in (2895x29x5), set the population that scales to 14,475
+10416 { p1.setSubpopulationSize(2895); }
+//finish burn-in at 1,588,330 years in 
+10954 late() {
+	catn("TIME EXPIRED");
+	sim.simulationFinished();
+}
+/// outputting a vcf file at the end
+10954 late() {
+ burn_in = sample(p1.genomes, 5790);
+	burn_in.outputVCF("burn_in_" + simID + ".vcf", outputNonnucleotides=F);
+}

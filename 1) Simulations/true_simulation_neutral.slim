@@ -1,0 +1,148 @@
+initialize() {
+
+//	setSeed(1);
+	
+	initializeSLiMOptions(nucleotideBased=T);
+	
+	initializeMutationTypeNuc("m1", 0.5, "f", 0.0);
+	initializeMutationTypeNuc("m2", 0.8, "e", 0.0);
+	initializeMutationTypeNuc("m3", 0.1, "g", -0.03, 0.2);
+
+	initializeMutationTypeNuc("m4", 0.5, "e", 0);
+	m4.convertToSubstitution = F;
+	
+	
+	// g1:	 	non-coding regions
+	// g2: 		exons
+	// g3:		introns 
+	initializeGenomicElementType("g1", m1, 1.0, mmJukesCantor(1.25e-8/3));
+	initializeGenomicElementType("g2", c(m1, m3), c(2,8), mmJukesCantor(1.25e-8/3));
+	initializeGenomicElementType("g3", m1, 1.0, mmJukesCantor(1.25e-8/3));
+	
+	
+	//	// generate random genes along a 100 Kb base chromosome
+	base = 0;
+	
+	while (base < 99999) {
+		// make a non-coding region
+		nc_length = rdunif(1, 100, 5000);
+		initializeGenomicElement(g1, base, base + nc_length - 1);
+		base = base + nc_length;
+		
+		
+		// make first exon
+		ex_length = asInteger(rlnorm(1,log(50), log(2))) +1 ;
+		initializeGenomicElement(g2, base, base + ex_length -1);
+		base = base + ex_length;
+		
+		
+		//make additional intron-exon pairs
+		do
+		{
+			in_length = asInteger(rlnorm(1, log(100), log(1.5))) + 10;
+			initializeGenomicElement(g3, base, base + in_length -1);
+			base = base + in_length;
+			
+			
+			ex_length = asInteger(rlnorm(1, log(50), log(2))) + 1;
+			initializeGenomicElement(g2, base, base + ex_length -1);
+			base = base + ex_length;
+		
+		}
+		while (runif(1) < 0.8); // 20 % probability of stopping
+	}
+	
+	// final non-coding region 
+	nc_length = rdunif(1, 100, 5000);
+	initializeGenomicElement(g1, base, base + nc_length - 1);
+	
+	// make length of chromosome match
+	initializeAncestralNucleotides(randomNucleotides(base + nc_length));
+	
+	// varying recombination rates
+	
+	dens = rgamma(100, 1.311, 0.509);
+	rates = dens*(1e-8);
+	ends = c(sort(sample(0:base + nc_length, 99)), base + nc_length - 1);
+	initializeRecombinationRate(rates, ends);
+
+
+}
+
+1 {
+//	// save this run's identifier, used to save and restore
+	defineConstant("simID", getSeed());
+	
+	// create ancestral african population 
+	sim.addSubpop("p1", 2895);
+	p1.genomes.readFromVCF("/home/ucsaree/Scratch/slim/burn_in/vcfs/burn_in_" + simID + ".vcf");
+	p1.setSubpopulationSize(14474);
+}
+
+
+/// create eurasian (p2) population from african population (p1)
+/// add migration between africa (p1) and eurasia (p2)
+	
+655 {
+	sim.addSubpopSplit("p2", 1861, p1);
+	p1.setMigrationRates(c(p2), c(15e-5));
+	p2.setMigrationRates(c(p1), c(15e-5));
+}
+
+/// add East Asian (p3) population from European (p2) population
+/// reduce European (p2) population size)
+/// set migration between the three populations
+
+1621 {
+	sim.addSubpopSplit("p3", 554, p2);
+	p2.setSubpopulationSize(1032);
+	
+	p1.setMigrationRates(c(p2, p3), c(2.5e-5, 0.78e-5));
+	p2.setMigrationRates(c(p1, p3), c(2.5e-5, 3.11e-5));
+	p3.setMigrationRates(c(p1, p2), c(0.78e-5, 3.11e-5));
+}
+
+/// exponential growth in Europe (p2) and East Asia (p3)
+
+1621:2414 {
+	t = sim.generation - 1621;
+	p2_size = round(1032 * exp(0.0038 * t));
+	p3_size = round(554 * exp(0.0048 * t));
+	
+	p2.setSubpopulationSize(asInteger(p2_size));
+	p3.setSubpopulationSize(asInteger(p3_size));
+}
+	
+
+/// add American (p4) population from East Asian (p3) at 16kya
+
+1862 {
+	sim.addSubpopSplit("p4", 514, p3);
+}
+
+/// increase American (p4) to size 11.727kya
+
+2009 {
+	p4.setSubpopulationSize(1922);
+}
+
+		
+
+/// outputting a vcf file at the end
+2414 late() {
+
+africa = sample(p1.genomes, 100);
+			africa.outputVCF("africa_neutral_" + simID + ".vcf", simplifyNucleotides=T);
+
+	
+		europe = sample(p2.genomes, 100);
+			europe.outputVCF("europe_neutral" + simID + ".vcf", simplifyNucleotides=T);
+
+
+	east_asia = sample(p3.genomes, 100);
+		east_asia.outputVCF("asia_neutral" + simID + ".vcf", simplifyNucleotides=T);
+
+
+	america = sample(p4.genomes, 100);
+		america.outputVCF("america_neutral" + simID + ".vcf", simplifyNucleotides=T);
+	}
